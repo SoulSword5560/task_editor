@@ -1,90 +1,12 @@
 "use client";
 import React, { useEffect, useState, useMemo, useRef } from "react";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  X,
-  Check,
-  Circle,
-  Clock,
-  CheckCircle2,
-  Calendar,
-  AlertCircle,
-  Search, 
-} from "lucide-react";
+import { Search, X, Circle } from "lucide-react";
+import { Task, TaskStatus } from "@/lib/types"; 
+import { statusConfig } from "@/lib/utils"; 
+import CreateTaskForm from "@/components/CreateTaskForm"; 
+import TaskCard from "@/components/TaskCard"; 
+import { useToast } from "@/components/Toast"; 
 
-type TaskStatus = "TODO" | "IN_PROGRESS" | "COMPLETED";
-
-type Task = {
-  id: number;
-  title: string;
-  description?: string | null;
-  status: TaskStatus;
-  deadline?: string | null;
-  createdAt: string;
-};
-
-const statusConfig = {
-  TODO: {
-    label: "To Do",
-    icon: Circle,
-    color: "text-gray-500",
-    bg: "bg-gray-50",
-    border: "border-gray-200",
-    hoverBg: "hover:bg-gray-100",
-  },
-  IN_PROGRESS: {
-    label: "In Progress",
-    icon: Clock,
-    color: "text-blue-500",
-    bg: "bg-blue-50",
-    border: "border-blue-200",
-    hoverBg: "hover:bg-blue-100",
-  },
-  COMPLETED: {
-    label: "Completed",
-    icon: CheckCircle2,
-    color: "text-green-500",
-    bg: "bg-green-50",
-    border: "border-green-200",
-    hoverBg: "hover:bg-green-100",
-  },
-};
-
-function getDeadlineStatus(deadline: string | null | undefined) {
-  if (!deadline) return null;
-  
-  const now = new Date();
-  const deadlineDate = new Date(deadline);
-  const diffMs = deadlineDate.getTime() - now.getTime();
-  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-  const diffDays = Math.floor(diffHours / 24);
-  
-  let text = "";
-  let color = "";
-  
-  if (diffHours < 0) {
-    const overdue = Math.abs(diffHours);
-    if (overdue < 24) {
-      text = `${overdue}h overdue`;
-    } else {
-      text = `${Math.abs(diffDays)}d overdue`;
-    }
-    color = "text-red-600 bg-red-50 border-red-200";
-  } else if (diffHours < 24) {
-    text = `${diffHours}h left`;
-    color = "text-orange-600 bg-orange-50 border-orange-200";
-  } else if (diffDays < 7) {
-    text = `${diffDays}d left`;
-    color = "text-yellow-600 bg-yellow-50 border-yellow-200";
-  } else {
-    text = `${diffDays}d left`;
-    color = "text-gray-600 bg-gray-50 border-gray-200";
-  }
-  
-  return { text, color, isOverdue: diffHours < 0 };
-}
 
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -100,6 +22,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  const { showToast, ToastContainer } = useToast();
 
   async function fetchTasks() {
     setLoading(true);
@@ -127,7 +51,7 @@ export default function Home() {
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
-    
+
     return () => {
       clearInterval(interval);
       document.removeEventListener("mousedown", handleClickOutside);
@@ -135,23 +59,29 @@ export default function Home() {
   }, []);
 
   async function handleCreate() {
-    if (!title.trim()) return alert("Title required");
+    if (!title.trim()) {
+      showToast("error", "Title is required!");
+      return;
+    }
+
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ 
-        title, 
+      body: JSON.stringify({
+        title,
         description,
-        deadline: deadline || null
+        deadline: deadline || null,
       }),
     });
+
     if (res.ok) {
       setTitle("");
       setDescription("");
       setDeadline("");
       fetchTasks();
+      showToast("success", "Task created successfully!");
     } else {
-      alert("Failed to add");
+      showToast("error", "Failed to create task. Please try again.");
     }
   }
 
@@ -162,41 +92,61 @@ export default function Home() {
       body: JSON.stringify({ status: newStatus }),
     });
     fetchTasks();
+    showToast("success", "Task status updated!");
   }
 
   async function removeTask(id: number) {
     if (!confirm("Delete this task?")) return;
-    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
-    fetchTasks();
+    
+    const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    
+    if (res.ok) {
+      fetchTasks();
+      showToast("success", "Task deleted successfully!");
+    } else {
+      showToast("error", "Failed to delete task.");
+    }
   }
 
   async function startEdit(t: Task) {
     setEditingId(t.id);
     setEditTitle(t.title);
     setEditDescription(t.description || "");
-    setEditDeadline(t.deadline ? new Date(t.deadline).toISOString().slice(0, 16) : "");
+    setEditDeadline(
+      t.deadline ? new Date(t.deadline).toISOString().slice(0, 16) : ""
+    );
   }
 
   async function submitEdit(id: number) {
-    if (!editTitle.trim()) return alert("Title required");
-    await fetch(`/api/tasks/${id}`, {
+    if (!editTitle.trim()) {
+      showToast("error", "Title is required!");
+      return;
+    }
+
+    const res = await fetch(`/api/tasks/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: editTitle,
         description: editDescription,
-        deadline: editDeadline || null
+        deadline: editDeadline || null,
       }),
     });
-    setEditingId(null);
-    setEditTitle("");
-    setEditDescription("");
-    setEditDeadline("");
-    fetchTasks();
+
+    if (res.ok) {
+      setEditingId(null);
+      setEditTitle("");
+      setEditDescription("");
+      setEditDeadline("");
+      fetchTasks();
+      showToast("success", "Task updated successfully!");
+    } else {
+      showToast("error", "Failed to update task.");
+    }
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleCreate();
     }
@@ -210,7 +160,7 @@ export default function Home() {
 
   const suggestions = useMemo(() => {
     if (!searchQuery) return [];
-    
+
     const relatedTitles = tasks
       .filter(
         (task) =>
@@ -218,7 +168,7 @@ export default function Home() {
           task.title.toLowerCase() !== searchQuery.toLowerCase()
       )
       .map((task) => task.title);
-    
+
     return [...new Set(relatedTitles)].slice(0, 5);
   }, [tasks, searchQuery]);
 
@@ -233,151 +183,11 @@ export default function Home() {
     setShowSuggestions(false);
   };
 
-  const renderTask = (t: Task) => {
-    const config = statusConfig[t.status];
-    const Icon = config.icon;
-    const deadlineStatus = getDeadlineStatus(t.deadline);
-
-    return (
-      <div
-        key={t.id}
-        className="bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-all group"
-      >
-        {editingId === t.id ? (
-          <div className="p-4 space-y-3">
-            <input
-              value={editTitle}
-              onChange={(e) => setEditTitle(e.target.value)}
-              placeholder="Task title..."
-              className="w-full text-base font-medium placeholder-gray-400 focus:outline-none text-gray-900"
-            />
-            <textarea
-              value={editDescription}
-              onChange={(e) => setEditDescription(e.target.value)}
-              placeholder="Add a description..."
-              rows={2}
-              className="w-full text-sm placeholder-gray-400 focus:outline-none resize-none text-gray-600"
-            />
-            <div className="flex items-center gap-2">
-              <Calendar size={16} className="text-gray-400" />
-              <label className="text-gray-500 font-medium text-sm min-w-fit">Deadline:</label>
-              <input
-                type="datetime-local"
-                value={editDeadline}
-                onChange={(e) => setEditDeadline(e.target.value)}
-                className="flex-1 text-sm text-gray-600 focus:outline-none"
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => submitEdit(t.id)}
-                className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-md font-medium transition-colors text-sm"
-              >
-                <Check size={14} />
-                Save
-              </button>
-              <button
-                onClick={() => {
-                  setEditingId(null);
-                  setEditTitle("");
-                  setEditDescription("");
-                  setEditDeadline("");
-                }}
-                className="flex items-center gap-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-md font-medium transition-colors text-sm"
-              >
-                <X size={14} />
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div className="flex items-start gap-2 flex-1 min-w-0">
-                <Icon size={18} className={`${config.color} flex-shrink-0 mt-0.5`} />
-                <div className="flex-1 min-w-0">
-                  <h3 className="text-base font-medium text-gray-900 mb-1">
-                    {t.title}
-                  </h3>
-                  {t.description && (
-                    <p className="text-sm text-gray-600 mb-2">{t.description}</p>
-                  )}
-                  
-                  {deadlineStatus && (
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="flex items-center gap-1.5">
-                        {deadlineStatus.isOverdue ? (
-                          <AlertCircle size={14} className={deadlineStatus.color.split(' ')[0]} />
-                        ) : (
-                          <Clock size={14} className={deadlineStatus.color.split(' ')[0]} />
-                        )}
-                        <span className="text-xs text-gray-500 font-medium">Deadline:</span>
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded border ${deadlineStatus.color}`}>
-                          {deadlineStatus.text}
-                        </span>
-                      </div>
-                      <span className="text-xs text-gray-500">
-                        {new Date(t.deadline!).toLocaleDateString('en-US', { 
-                          month: 'short', 
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                <button
-                  onClick={() => startEdit(t)}
-                  className="p-1.5 hover:bg-gray-100 rounded-md transition-colors"
-                  title="Edit"
-                >
-                  <Pencil size={14} className="text-gray-600" />
-                </button>
-                <button
-                  onClick={() => removeTask(t.id)}
-                  className="p-1.5 hover:bg-red-50 rounded-md transition-colors"
-                  title="Delete"
-                >
-                  <Trash2 size={14} className="text-red-600" />
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-1.5">
-              {(Object.keys(statusConfig) as TaskStatus[]).map((status) => {
-                const statusConf = statusConfig[status];
-                const StatusIcon = statusConf.icon;
-                const isActive = t.status === status;
-
-                return (
-                  <button
-                    key={status}
-                    onClick={() => updateTaskStatus(t.id, status)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                      isActive
-                        ? `${statusConf.bg} ${statusConf.color} ${statusConf.border} border`
-                        : "bg-gray-50 text-gray-600 hover:bg-gray-100"
-                    }`}
-                  >
-                    <StatusIcon size={12} />
-                    {statusConf.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      
-      <header className="sticky top-0 z-10 w-full bg-white-900 backdrop-blur-sm border-b ">        
+      <ToastContainer />
+
+      <header className="sticky top-0 z-10 w-full bg-white backdrop-blur-sm border-b">
         <div className="max-w-7xl mx-auto px-4 py-6 flex justify-between items-center">
           <div>
             <h1 className="text-4xl font-bold text-black mb-2">Tasks</h1>
@@ -430,46 +240,16 @@ export default function Home() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 pt-8 pb-12">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5 mb-8 hover:shadow-md transition-shadow">
-          <div className="space-y-3">
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Task title..."
-              className="w-full text-lg font-medium placeholder-gray-400 focus:outline-none text-gray-900"
-            />
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add a description..."
-              rows={2}
-              className="w-full text-sm placeholder-gray-400 focus:outline-none resize-none text-gray-600"
-            />
-            <div className="flex items-center gap-2 text-sm">
-              <Calendar size={16} className="text-gray-400" />
-              <label className="text-gray-500 font-medium min-w-fit">
-                Deadline:
-              </label>
-              <input
-                type="datetime-local"
-                value={deadline}
-                onChange={(e) => setDeadline(e.target.value)}
-                className="flex-1 text-gray-600 focus:outline-none"
-                placeholder="Set deadline (optional)"
-              />
-            </div>
-            <div className="flex justify-end">
-              <button
-                onClick={handleCreate}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
-              >
-                <Plus size={18} />
-                Add Task
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateTaskForm
+          title={title}
+          setTitle={setTitle}
+          description={description}
+          setDescription={setDescription}
+          deadline={deadline}
+          setDeadline={setDeadline}
+          handleCreate={handleCreate}
+          handleKeyPress={handleKeyPress}
+        />
 
         {loading && (
           <div className="text-center py-12">
@@ -506,7 +286,24 @@ export default function Home() {
                         No tasks
                       </div>
                     ) : (
-                      statusTasks.map(renderTask)
+                      statusTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          editingId={editingId}
+                          editTitle={editTitle}
+                          setEditTitle={setEditTitle}
+                          editDescription={editDescription}
+                          setEditDescription={setEditDescription}
+                          editDeadline={editDeadline}
+                          setEditDeadline={setEditDeadline}
+                          startEdit={startEdit}
+                          submitEdit={submitEdit}
+                          setEditingId={setEditingId}
+                          removeTask={removeTask}
+                          updateTaskStatus={updateTaskStatus}
+                        />
+                      ))
                     )}
                   </div>
                 </div>
